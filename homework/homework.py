@@ -4,7 +4,6 @@ Escriba el codigo que ejecute la accion solicitada.
 
 # pylint: disable=import-outside-toplevel
 
-
 def clean_campaign_data():
     """
     En esta tarea se le pide que limpie los datos de una campaña de
@@ -49,8 +48,90 @@ def clean_campaign_data():
 
 
     """
+    import zipfile
+    import pandas as pd
+    import os
+    import io
 
-    return
+    input_dir = "files/input"
+    output_dir = "files/output"
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Lista todos los archivos .zip
+    zip_files = [
+        os.path.join(input_dir, f)
+        for f in os.listdir(input_dir)
+        if f.endswith(".zip")
+    ]
+
+    dataframes = []
+
+    for zip_path in zip_files:
+        with zipfile.ZipFile(zip_path, "r") as z:
+            for filename in z.namelist():
+                if filename.endswith(".csv"):
+                    with z.open(filename) as f:
+                        raw = f.read().decode("utf-8")
+                        # Corrige encabezado si empieza con coma
+                        if raw.startswith(","):
+                            raw = raw[1:]
+                        df = pd.read_csv(io.StringIO(raw))
+                        dataframes.append(df)
+
+    # Unir todos los fragmentos
+    df = pd.concat(dataframes, ignore_index=True)
+
+    # --- Client CSV ---
+    client = df[[
+        "client_id", "age", "job", "marital", "education",
+        "credit_default", "mortgage"
+    ]].copy()
+
+    # Limpieza
+    client["job"] = client["job"].str.replace(".", "", regex=False).str.replace("-", "_")
+    client["education"] = client["education"].str.replace(".", "_", regex=False)
+    client["education"] = client["education"].replace("unknown", pd.NA)
+    client["credit_default"] = client["credit_default"].map(lambda x: 1 if str(x).lower() == "yes" else 0)
+    client["mortgage"] = client["mortgage"].map(lambda x: 1 if str(x).lower() == "yes" else 0)
+
+    client.to_csv(os.path.join(output_dir, "client.csv"), index=False)
+
+    # --- Campaign CSV ---
+    campaign = df[[
+        "client_id", "number_contacts", "contact_duration",
+        "previous_campaign_contacts", "previous_outcome",
+        "campaign_outcome", "day", "month"
+    ]].copy()
+
+    campaign["previous_outcome"] = campaign["previous_outcome"].map(
+        lambda x: 1 if str(x).lower() == "success" else 0
+    )
+    campaign["campaign_outcome"] = campaign["campaign_outcome"].map(
+        lambda x: 1 if str(x).lower() == "yes" else 0
+    )
+
+    # Mapeo de meses a números
+    month_map = {
+        "jan": "01", "feb": "02", "mar": "03", "apr": "04",
+        "may": "05", "jun": "06", "jul": "07", "aug": "08",
+        "sep": "09", "oct": "10", "nov": "11", "dec": "12"
+    }
+
+    campaign["last_contact_date"] = (
+        "2022-" +
+        campaign["month"].str.lower().map(month_map) + "-" +
+        campaign["day"].astype(str).str.zfill(2)
+    )
+
+    campaign = campaign.drop(columns=["day", "month"])
+    campaign.to_csv(os.path.join(output_dir, "campaign.csv"), index=False)
+
+    # --- Economics CSV ---
+    economics = df[[
+        "client_id", "cons_price_idx", "euribor_three_months"
+    ]].copy()
+    economics.to_csv(os.path.join(output_dir, "economics.csv"), index=False)
+
 
 
 if __name__ == "__main__":
